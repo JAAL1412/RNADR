@@ -47,6 +47,7 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
     }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+
 const cap = require("cap");
 const Cap = cap.Cap; // Acceder a la clase Cap
 const decoders = cap.decoders; // Acceder a los decoders
@@ -59,7 +60,7 @@ const rl = readline.createInterface({
     output: process.stdout,
 });
 
-const c = new Cap(); // Ahora Cap es una clase válida
+const c = new Cap(); 
 var deviceList = Cap.deviceList();
 console.log('Dispositivos disponibles: ');
 deviceList.forEach(function (device, index) {
@@ -201,4 +202,4 @@ rl.question('Ingrese el número del dispositivo: ', function (dVS) {
     }
     
     rl.close();
-})    
+}) 
