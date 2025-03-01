@@ -32,7 +32,6 @@ columns_to_keep = [
     'flowStartMilliseconds',
     'flowStartMilliseconds_Rev',
     'ipClassOfService',
-    'ipVersion',
     'octetDeltaCount',
     'octetDeltaCount_Rev',
     'packetDeltaCount',
@@ -44,7 +43,7 @@ columns_to_keep = [
     'tcpControlBits_Rev',
     'tcpWindowSize',
     'timestamp',
-    'vlanId'
+
 ]
 
 # Filtra las columnas seleccionadas

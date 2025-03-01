@@ -32,7 +32,6 @@ columns_to_keep = [
     'flowStartMilliseconds',
     'flowStartMilliseconds_Rev',
     'ipClassOfService',
-    'ipVersion',
     'octetDeltaCount',
     'octetDeltaCount_Rev',
     'packetDeltaCount',

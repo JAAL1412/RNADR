@@ -1,47 +1,73 @@
-"use strict";
-const { Cap, decoders } = require('cap');
-const { PROTOCOL } = decoders;
-const readline = require('readline');
+import * as Cap from 'cap';
+import { decoders, PROTOCOL } from 'cap';
+import * as readline from 'readline';
+import axios from 'axios';
+ // Debería mostrar la estructura esperada
+
+// Definir tipos para los datos del flujo
+interface FlowData {
+  biFlowStartMilliseconds: number;
+  biFlowEndMilliseconds?: number;
+  flowStartMilliseconds: number;
+  flowStartMilliseconds_Rev?: number;
+  flowEndMilliseconds?: number;
+  flowEndMilliseconds_Rev?: number;
+  octetDeltaCount: number;
+  octetDeltaCount_Rev: number;
+  packetDeltaCount: number;
+  packetDeltaCount_Rev: number;
+  tcpControlBits?: number;
+  tcpControlBits_Rev?: number;
+  tcpWindowSize?: number;
+  destinationIPv4Address?: string;
+  destinationTransportPort?: number;
+  sourceIPv4Address?: string;
+  sourceTransportPort?: number;
+  timestamp?: number;
+}
+
+// Definir tipos para los datos del paquete
+interface PacketData extends FlowData {
+  ipClassOfService: number;
+  protocolIdentifier: number;
+}
 
 const rl = readline.createInterface({
   input: process.stdin,
-  output: process.stdout
+  output: process.stdout,
 });
 
 const c = new Cap();
 const deviceList = Cap.deviceList();
 
-console.log('Available devices:');
-deviceList.forEach((device, index) => {
+console.log('Dispositivos disponibles: '); 
+interface NetworkDevice {
+    name: string;
+    description: string;
+  }
+deviceList.forEach((device: NetworkDevice, index: number) => {
   console.log(`${index}: ${device.name} - ${device.description}`);
 });
 
-rl.question('Ingrese el número del dispositivo: ', (dVS) => {
+rl.question('Ingrese el número del dispositivo: ', (dVS: string) => {
   console.log(`Seleccionado: ${dVS}!`);
   const device = deviceList[parseInt(dVS)].name;
   const filter = 'tcp';
   const bufSize = 10 * 1024 * 1024;
   const buffer = Buffer.alloc(65535);
 
-  const flowMap = new Map();
+  const flowMap = new Map<string, FlowData>();
 
   c.open(device, filter, bufSize, buffer, true);
-  console.log('Listening on ' + device);
+  console.log('Recibiendo del dispositivo: ' + device);
   c.setMinBytes && c.setMinBytes(0);
 
-  c.on('packet', (nbytes, trunc) => {
+  c.on('packet', (nbytes: number, trunc: boolean) => {
     const [seconds, nanoseconds] = process.hrtime();
-    const timestamp = (seconds * 1e3) + (nanoseconds / 1e6);
+    const timestamp = seconds * 1e3 + nanoseconds / 1e6;
 
     const ret = decoders.Ethernet(buffer);
-    let vlanId = undefined;
 
-    // Verificar si el paquete tiene un encabezado 802.1Q (VLAN tagging)
-    if (ret.info.type === PROTOCOL.ETHERNET.VLAN) {
-      const vlan = decoders.VLAN(buffer, ret.offset);
-      vlanId = vlan.info.id;
-      ret.offset += 4; // Ajustar el offset para el siguiente encabezado
-    }
 
     if (ret.info.type === PROTOCOL.ETHERNET.IPV4) {
       const ip = decoders.IPV4(buffer, ret.offset);
@@ -69,8 +95,8 @@ rl.question('Ingrese el número del dispositivo: ', (dVS) => {
 
         if (!flowMap.has(revFlowKey)) {
           flowMap.set(revFlowKey, {
-            biFlowStartMilliseconds: undefined,
-            flowStartMilliseconds: undefined,
+            biFlowStartMilliseconds: 0,
+            flowStartMilliseconds: 0,
             flowStartMilliseconds_Rev: undefined,
             flowEndMilliseconds: undefined,
             flowEndMilliseconds_Rev: undefined,
@@ -83,8 +109,8 @@ rl.question('Ingrese el número del dispositivo: ', (dVS) => {
           });
         }
 
-        const flowData = flowMap.get(flowKey);
-        const revFlowData = flowMap.get(revFlowKey);
+        const flowData = flowMap.get(flowKey)!;
+        const revFlowData = flowMap.get(revFlowKey)!;
 
         if (flowKey === `${ip.info.srcaddr}:${tcp.info.srcport}-${ip.info.dstaddr}:${tcp.info.dstport}`) {
           flowData.octetDeltaCount += packetSize;
@@ -96,16 +122,16 @@ rl.question('Ingrese el número del dispositivo: ', (dVS) => {
           revFlowData.packetDeltaCount += 1;
           revFlowData.tcpControlBits = tcp.info.flags;
           revFlowData.tcpWindowSize = tcp.info.windowSize || 0;
-          
+
           flowData.tcpControlBits_Rev = tcp.info.flags;
         }
 
         const [endSec, endNano] = process.hrtime();
-        const flowEndMilliseconds = (endSec * 1e3) + (endNano / 1e6);
+        const flowEndMilliseconds = endSec * 1e3 + endNano / 1e6;
         const [endRevSec, endRevNano] = process.hrtime();
-        const flowEndMilliseconds_Rev = (endRevSec * 1e3) + (endRevNano / 1e6);
+        const flowEndMilliseconds_Rev = endRevSec * 1e3 + endRevNano / 1e6;
         const [startRevSec, startRevNano] = process.hrtime();
-        const flowStartMilliseconds_Rev = (startRevSec * 1e3) + (startRevNano / 1e6);
+        const flowStartMilliseconds_Rev = startRevSec * 1e3 + startRevNano / 1e6;
 
         flowData.flowEndMilliseconds = flowEndMilliseconds;
         flowData.biFlowEndMilliseconds = flowEndMilliseconds;
@@ -117,35 +143,16 @@ rl.question('Ingrese el número del dispositivo: ', (dVS) => {
         revFlowData.flowEndMilliseconds = flowEndMilliseconds;
         revFlowData.flowStartMilliseconds = timestamp;
 
-        const packetData = {
+        const packetData: PacketData = {
           ...flowData,
           ...extractPacketData(ip, tcp, packetSize, flowData, revFlowData),
           timestamp: timestamp,
           ipClassOfService: ip.info.tos || 0,
+          protocolIdentifier: ip.info.protocol,
         };
 
-        console.log(`
-          biFlowEndMilliseconds: ${packetData.biFlowEndMilliseconds},
-          biFlowStartMilliseconds: ${packetData.biFlowStartMilliseconds},
-          destinationIPv4Address: ${packetData.destinationIPv4Address},
-          destinationTransportPort: ${packetData.destinationTransportPort},
-          flowEndMilliseconds: ${packetData.flowEndMilliseconds},
-          flowEndMilliseconds_Rev: ${packetData.flowEndMilliseconds_Rev},
-          flowStartMilliseconds: ${packetData.flowStartMilliseconds},
-          flowStartMilliseconds_Rev: ${packetData.flowStartMilliseconds_Rev},
-          ipClassOfService: ${packetData.ipClassOfService},
-          octetDeltaCount: ${packetData.octetDeltaCount},
-          octetDeltaCount_Rev: ${packetData.octetDeltaCount_Rev},
-          packetDeltaCount: ${packetData.packetDeltaCount},
-          packetDeltaCount_Rev: ${packetData.packetDeltaCount_Rev},
-          protocolIdentifier: ${packetData.protocolIdentifier},
-          sourceIPv4Address: ${packetData.sourceIPv4Address},
-          sourceTransportPort: ${packetData.sourceTransportPort},
-          tcpControlBits: ${packetData.tcpControlBits},
-          tcpControlBits_Rev: ${packetData.tcpControlBits_Rev},
-          tcpWindowSize: ${packetData.tcpWindowSize},
-          timestamp: ${packetData.timestamp}
-        `);
+        // Enviar datos a la API de Flask
+        enviarDatos(packetData);
 
         flowMap.set(flowKey, flowData);
         flowMap.set(revFlowKey, revFlowData);
@@ -153,7 +160,13 @@ rl.question('Ingrese el número del dispositivo: ', (dVS) => {
     }
   });
 
-  function extractPacketData(ip, tcp, packetSize, flowData, revFlowData) {
+  function extractPacketData(
+    ip: any,
+    tcp: any,
+    packetSize: number,
+    flowData: FlowData,
+    revFlowData: FlowData
+  ): Partial<PacketData> {
     return {
       biFlowEndMilliseconds: flowData.biFlowEndMilliseconds,
       biFlowStartMilliseconds: flowData.biFlowStartMilliseconds,
@@ -163,7 +176,7 @@ rl.question('Ingrese el número del dispositivo: ', (dVS) => {
       flowEndMilliseconds_Rev: flowData.flowEndMilliseconds_Rev,
       flowStartMilliseconds: flowData.flowStartMilliseconds,
       flowStartMilliseconds_Rev: flowData.flowStartMilliseconds_Rev,
-      ipClassOfService: ip.info.tos || 0, 
+      ipClassOfService: ip.info.tos || 0,
       octetDeltaCount: flowData.octetDeltaCount,
       octetDeltaCount_Rev: revFlowData.octetDeltaCount,
       packetDeltaCount: flowData.packetDeltaCount,
@@ -174,8 +187,21 @@ rl.question('Ingrese el número del dispositivo: ', (dVS) => {
       tcpControlBits: tcp.info.flags,
       tcpControlBits_Rev: revFlowData.tcpControlBits || 0,
       tcpWindowSize: tcp.info.windowSize || 0,
-      timestamp: undefined
     };
+  }
+
+  // Función para enviar datos a la API de Flask
+  async function enviarDatos(packetData: PacketData) {
+    try {
+      const response = await axios.post('http://localhost:5000/predecir', packetData);
+      console.log('Predicción:', response.data.prediccion);
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error('Error al enviar datos:', error.message);
+      } else {
+        console.error('Error desconocido:', error);
+      }
+    }
   }
 
   rl.close();
